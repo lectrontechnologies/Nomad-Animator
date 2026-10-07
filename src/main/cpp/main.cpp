@@ -9,6 +9,10 @@
 #include <algorithm>
 #include <ctime>
 #include <cstdio>
+#include <string>
+#include <dirent.h>
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
 #define PI 3.14159265f
 
 // ---------- matematica ----------
@@ -63,12 +67,12 @@ void addObj(int mesh){
 // ---------- GL ----------
 const char*VS=R"(#version 300 es
 layout(location=0) in vec3 aP; layout(location=1) in vec3 aN;
-uniform mat4 uMVP; uniform mat4 uM; out vec3 vN;
-void main(){gl_Position=uMVP*vec4(aP,1.0); vN=mat3(uM)*aN;})";
+uniform mat4 uMVP; uniform mat4 uM; out vec3 vN; out vec3 vP;
+void main(){gl_Position=uMVP*vec4(aP,1.0); vN=mat3(uM)*aN; vP=aP;})";
 const char*FS=R"(#version 300 es
-precision mediump float; in vec3 vN; uniform vec4 uC; uniform float uL; out vec4 o;
-void main(){float d=1.0; if(uL>0.5){d=0.25+0.75*max(dot(normalize(vN),normalize(vec3(.4,.8,.5))),0.0);} o=vec4(uC.rgb*d,uC.a);})";
-GLuint uMVP,uM,uC,uL;
+precision highp float; in vec3 vN; in vec3 vP; uniform vec4 uC; uniform float uL; uniform vec3 uS; out vec4 o;
+void main(){if(uL<0.0){vec2 q=(vP.xy-.5)*uS.xy;vec2 e=abs(q)-uS.xy*.5+uS.z;float dd=length(max(e,0.0))+min(max(e.x,e.y),0.0)-uS.z;o=vec4(uC.rgb,uC.a*clamp(.5-dd,0.0,1.0));return;} float d=1.0; if(uL>0.5){d=0.25+0.75*max(dot(normalize(vN),normalize(vec3(.4,.8,.5))),0.0);} o=vec4(uC.rgb*d,uC.a);})";
+GLuint uMVP,uM,uC,uL,uS,gProg=0;float gS[3]={1,1,0};void initText();
 struct Mesh{GLuint vao=0,vbo=0;int n=0;GLenum mode=GL_TRIANGLES;};
 Mesh meshes[5]; // 0 cubo,1 esfera,2 plano,3 quad2D,4 grade
 GLuint sh(GLenum t,const char*s){GLuint h=glCreateShader(t);glShaderSource(h,1,&s,0);glCompileShader(h);GLint ok;glGetShaderiv(h,GL_COMPILE_STATUS,&ok);
@@ -103,27 +107,66 @@ void buildMeshes(){
  for(int i=-10;i<=10;i++){vtx(a,{(float)i,0,-10},up);vtx(a,{(float)i,0,10},up);vtx(a,{-10,0,(float)i},up);vtx(a,{10,0,(float)i},up);}
  meshes[4]=upload(a,GL_LINES);}
 void initGL(){
- GLuint p=glCreateProgram();glAttachShader(p,sh(GL_VERTEX_SHADER,VS));glAttachShader(p,sh(GL_FRAGMENT_SHADER,FS));
+ GLuint p=gProg=glCreateProgram();glAttachShader(p,sh(GL_VERTEX_SHADER,VS));glAttachShader(p,sh(GL_FRAGMENT_SHADER,FS));
  glLinkProgram(p);glUseProgram(p);
- uMVP=glGetUniformLocation(p,"uMVP");uM=glGetUniformLocation(p,"uM");uC=glGetUniformLocation(p,"uC");uL=glGetUniformLocation(p,"uL");
- glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);buildMeshes();}
+ uMVP=glGetUniformLocation(p,"uMVP");uM=glGetUniformLocation(p,"uM");uC=glGetUniformLocation(p,"uC");uL=glGetUniformLocation(p,"uL");uS=glGetUniformLocation(p,"uS");
+ glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);buildMeshes();initText();}
 void draw(Mesh&m,const M&mvp,const M&mod,float r,float g,float b,float a,float lit){
  glUniformMatrix4fv(uMVP,1,GL_FALSE,mvp.m);glUniformMatrix4fv(uM,1,GL_FALSE,mod.m);
- glUniform4f(uC,r,g,b,a);glUniform1f(uL,lit);glBindVertexArray(m.vao);glDrawArrays(m.mode,0,m.n);}
+ glUniform4f(uC,r,g,b,a);glUniform1f(uL,lit);glUniform3f(uS,gS[0],gS[1],gS[2]);glBindVertexArray(m.vao);glDrawArrays(m.mode,0,m.n);}
 
 // ---------- UI 2D ----------
-void rect(float x,float y,float w,float h,float r,float g,float b,float a=1){
+void rect(float x,float y,float w,float h,float r,float g,float b,float a=1,float rad=0){
  M m={};m.m[0]=2*w/W;m.m[5]=-2*h/H;m.m[10]=1;m.m[12]=2*x/W-1;m.m[13]=1-2*y/H;m.m[15]=1;
- draw(meshes[3],m,id(),r,g,b,a,0);}
+ gS[0]=w;gS[1]=h;gS[2]=std::min(rad,std::min(w,h)/2);draw(meshes[3],m,id(),r,g,b,a,-1);}
 const char*GN="ABCDEHIKLMNOPRSTUVYXZ0123456789";
 const char*GG[]={"010101111101101","110101110101110","011100100100011","110101101101110","111100110100111",
  "101101111101101","111010010010111","101101110101101","100100100100111","101111111101101","110101101101101",
  "010101101101010","110101110100100","110101110101101","011100010001110","111010010010010","101101101101111",
  "101101101101010","101101010010010","101101010101101","111001010100111","111101101101111","010110010010111","111001111100111","111001111001111","101101111001001","111100111001111","111100111101111","111001001010010","111101111101111","111101111001111"};
-void text(const char*s,float x,float y,float ps,float r,float g,float b){
+void btext(const char*s,float x,float y,float ps,float r,float g,float b){
  for(;*s;s++){const char*p=strchr(GN,*s);
   if(p){const char*gl=GG[p-GN];for(int k=0;k<15;k++)if(gl[k]=='1')rect(x+(k%3)*ps,y+(k/3)*ps,ps,ps,r,g,b);}
   x+=4*ps;}}
+// ---- fonte TTF do sistema (stb_truetype) ----
+std::vector<unsigned char> gAtlas;stbtt_bakedchar gBC[96];GLuint gTex=0,gTP=0,gTVao=0,gTVbo=0,uTS,uTC;
+const float FPX=44;
+bool loadFont(){
+ FILE*f=nullptr;
+ static const char*P[]={"/system/fonts/Roboto-Regular.ttf","/system/fonts/RobotoStatic-Regular.ttf","/system/fonts/Roboto[wdth,wght].ttf","/system/fonts/NotoSans-Regular.ttf","/system/fonts/DroidSans.ttf"};
+ for(auto q:P){f=fopen(q,"rb");if(f)break;}
+ if(!f){if(DIR*dr=opendir("/system/fonts")){while(dirent*en=readdir(dr)){std::string n=en->d_name;
+  if(n.size()>8&&n.find("Roboto")!=std::string::npos&&n.compare(n.size()-4,4,".ttf")==0){f=fopen(("/system/fonts/"+n).c_str(),"rb");if(f)break;}}closedir(dr);}}
+ if(!f)return false;
+ fseek(f,0,SEEK_END);long sz=ftell(f);fseek(f,0,SEEK_SET);std::vector<unsigned char> d(sz>0?sz:1);
+ size_t rd=fread(d.data(),1,sz,f);fclose(f);if(sz<=0||(long)rd!=sz)return false;
+ gAtlas.assign(512*512,0);
+ if(stbtt_BakeFontBitmap(d.data(),0,FPX,gAtlas.data(),512,512,32,96,gBC)<=0){gAtlas.clear();return false;}
+ return true;}
+void initText(){
+ static bool tried=false;if(!tried){tried=true;loadFont();}
+ gTex=0;if(gAtlas.empty())return;
+ const char*vs="#version 300 es\nlayout(location=0) in vec4 aV; uniform vec2 uScr; out vec2 vT;\nvoid main(){gl_Position=vec4(aV.x/uScr.x*2.0-1.0,1.0-aV.y/uScr.y*2.0,0.0,1.0); vT=aV.zw;}";
+ const char*fs="#version 300 es\nprecision mediump float; in vec2 vT; uniform sampler2D uTex; uniform vec4 uC; out vec4 o;\nvoid main(){o=vec4(uC.rgb,uC.a*texture(uTex,vT).r);}";
+ GLuint p=glCreateProgram();glAttachShader(p,sh(GL_VERTEX_SHADER,vs));glAttachShader(p,sh(GL_FRAGMENT_SHADER,fs));glLinkProgram(p);gTP=p;
+ uTS=glGetUniformLocation(p,"uScr");uTC=glGetUniformLocation(p,"uC");glUseProgram(p);glUniform1i(glGetUniformLocation(p,"uTex"),0);glUseProgram(gProg);
+ glGenTextures(1,&gTex);glBindTexture(GL_TEXTURE_2D,gTex);glPixelStorei(GL_UNPACK_ALIGNMENT,1);
+ glTexImage2D(GL_TEXTURE_2D,0,GL_R8,512,512,0,GL_RED,GL_UNSIGNED_BYTE,gAtlas.data());
+ glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+ glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+ glGenVertexArrays(1,&gTVao);glGenBuffers(1,&gTVbo);glBindVertexArray(gTVao);glBindBuffer(GL_ARRAY_BUFFER,gTVbo);
+ glEnableVertexAttribArray(0);glVertexAttribPointer(0,4,GL_FLOAT,GL_FALSE,16,(void*)0);}
+float tw(const char*s,float ps){if(!gTex)return strlen(s)*4*ps-ps;float w=0;for(;*s;s++){int c=(unsigned char)*s;if(c>=32&&c<128)w+=gBC[c-32].xadvance;}return w*ps*7/FPX;}
+void text(const char*s,float x,float y,float ps,float r,float g,float b){
+ if(!gTex){btext(s,x,y,ps,r,g,b);return;}
+ float sc=ps*7/FPX,by=y+5*ps;std::vector<float> v;
+ for(;*s;s++){int c=(unsigned char)*s;if(c<32||c>=128)continue;stbtt_aligned_quad q;float xp=0,yp=0;stbtt_GetBakedQuad(gBC,512,512,c-32,&xp,&yp,&q,1);
+  float x0=x+q.x0*sc,x1=x+q.x1*sc,y0=by+q.y0*sc,y1=by+q.y1*sc;
+  v.insert(v.end(),{x0,y0,q.s0,q.t0,x1,y0,q.s1,q.t0,x1,y1,q.s1,q.t1,x0,y0,q.s0,q.t0,x1,y1,q.s1,q.t1,x0,y1,q.s0,q.t1});x+=xp*sc;}
+ if(v.empty())return;
+ glUseProgram(gTP);glUniform2f(uTS,(float)W,(float)H);glUniform4f(uTC,r,g,b,1);glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,gTex);
+ glBindVertexArray(gTVao);glBindBuffer(GL_ARRAY_BUFFER,gTVbo);glBufferData(GL_ARRAY_BUFFER,v.size()*4,v.data(),GL_STREAM_DRAW);
+ glDrawArrays(GL_TRIANGLES,0,(int)v.size()/4);glUseProgram(gProg);}
 const char*BL[10]={"CUBE","SPH","PLN","MOVE","ROT","SCL","CAM","KEY","PLAY","DEL"};
 float BC[10][3]={{.2f,.6f,.3f},{.2f,.6f,.3f},{.2f,.6f,.3f},{.2f,.4f,.8f},{.2f,.4f,.8f},{.2f,.4f,.8f},{.2f,.4f,.8f},{.9f,.75f,.1f},{.9f,.5f,.1f},{.8f,.2f,.2f}};
 float ML(){return W*.05f;} float bw(){return (W-2*ML())/10.f;} float bh(){return H*.1f;} float tlh(){return H*.09f;} float tly(){return H-H*.045f-tlh();}
@@ -133,8 +176,8 @@ float tx(float t){return ML()+t/DUR*(W-2*ML());}
 EGLDisplay dpy=EGL_NO_DISPLAY;EGLSurface surf=EGL_NO_SURFACE;EGLContext ctx=EGL_NO_CONTEXT;bool ready=false;
 bool initEGL(ANativeWindow*w){
  dpy=eglGetDisplay(EGL_DEFAULT_DISPLAY);eglInitialize(dpy,0,0);
- const EGLint ca[]={EGL_RENDERABLE_TYPE,0x0040,EGL_SURFACE_TYPE,EGL_WINDOW_BIT,EGL_RED_SIZE,8,EGL_GREEN_SIZE,8,EGL_BLUE_SIZE,8,EGL_DEPTH_SIZE,24,EGL_NONE};
- EGLConfig cfg;EGLint n=0;eglChooseConfig(dpy,ca,&cfg,1,&n);if(!n)return false;
+ EGLint ca[]={EGL_RENDERABLE_TYPE,0x0040,EGL_SURFACE_TYPE,EGL_WINDOW_BIT,EGL_RED_SIZE,8,EGL_GREEN_SIZE,8,EGL_BLUE_SIZE,8,EGL_DEPTH_SIZE,24,EGL_SAMPLE_BUFFERS,1,EGL_SAMPLES,4,EGL_NONE};
+ EGLConfig cfg;EGLint n=0;eglChooseConfig(dpy,ca,&cfg,1,&n);if(!n){ca[12]=EGL_NONE;eglChooseConfig(dpy,ca,&cfg,1,&n);}if(!n)return false;
  EGLint fmt;eglGetConfigAttrib(dpy,cfg,EGL_NATIVE_VISUAL_ID,&fmt);ANativeWindow_setBuffersGeometry(w,0,0,fmt);
  surf=eglCreateWindowSurface(dpy,cfg,w,0);
  const EGLint xa[]={EGL_CONTEXT_CLIENT_VERSION,3,EGL_NONE};ctx=eglCreateContext(dpy,cfg,0,xa);
@@ -176,13 +219,13 @@ float navR(){return H*.11f;} float navX(){return W-ML()-navR()-8;} float navY(){
 void navPts(ND*d){V f=norm(tgt-camEye()),s=norm(cross(f,V{0,1,0})),u=cross(s,f);float R=navR();
  for(int i=0;i<6;i++){int a=i%3;V v=AX[a]*(i<3?1.f:-1.f);d[i]={navX()+dot(v,s)*R*.72f,navY()-dot(v,u)*R*.72f,dot(v,f),a,i<3};}}
 void drawNav(){ND d[6];navPts(d);float R=navR(),cx=navX(),cy=navY();
- rect(cx-R-6,cy-R-6,2*R+12,2*R+12,0,0,0,.28f);
+ rect(cx-R-6,cy-R-6,2*R+12,2*R+12,0,0,0,.3f,R+6);
  std::sort(d,d+6,[](const ND&p,const ND&q){return p.z>q.z;});
  static const char*LB[3]={"X","Y","Z"};
  for(auto&e:d){const float*c=AC[e.a];float k=e.pos?1.f:.5f,r=e.pos?H*.024f:H*.017f;
-  if(e.pos)for(int j=1;j<6;j++)rect(cx+(e.x-cx)*j/6-2,cy+(e.y-cy)*j/6-2,4,4,c[0],c[1],c[2]);
-  rect(e.x-r,e.y-r,2*r,2*r,c[0]*k,c[1]*k,c[2]*k);
-  if(e.pos){float ps=H*.007f;text(LB[e.a],e.x-1.5f*ps,e.y-2.5f*ps,ps,1,1,1);}}}
+  if(e.pos)for(int j=1;j<6;j++)rect(cx+(e.x-cx)*j/6-2,cy+(e.y-cy)*j/6-2,4,4,c[0],c[1],c[2],1,2);
+  rect(e.x-r,e.y-r,2*r,2*r,c[0]*k,c[1]*k,c[2]*k,1,r);
+  if(e.pos){float ps=H*.0055f;text(LB[e.a],e.x-tw(LB[e.a],ps)/2,e.y-2.5f*ps,ps,1,1,1);}}}
 void frame(){
  glViewport(0,0,W,H);glClearColor(.18f,.19f,.22f,1);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
  glEnable(GL_DEPTH_TEST);
@@ -194,16 +237,16 @@ void frame(){
  if(sel>=0&&tool<3)drawGizmo();
  float ps=bh()/8;
  for(int i=0;i<10;i++){bool on=(i>=3&&i<=6&&tool==i-3)||(i==8&&playing);float k=on?1.f:.55f,x=ML()+i*bw();
-  rect(x+3,4,bw()-6,bh()-8,BC[i][0]*k,BC[i][1]*k,BC[i][2]*k);
-  float tw=strlen(BL[i])*4*ps-ps;text(BL[i],x+(bw()-tw)/2,(bh()-5*ps)/2,ps,1,1,1);}
+  rect(x+3,4,bw()-6,bh()-8,BC[i][0]*k,BC[i][1]*k,BC[i][2]*k,1,bh()*.18f);
+  float tw_=tw(BL[i],ps);text(BL[i],x+(bw()-tw_)/2,(bh()-5*ps)/2,ps,1,1,1);}
  float y0=tly(),h=tlh(),x0=ML(),w=W-2*x0,p2=h/16;
- rect(x0,y0,w,h,.12f,.12f,.14f);
+ rect(x0,y0,w,h,.12f,.12f,.14f,1,h*.15f);
  for(int f=0;f<=(int)(DUR*24);f+=6){float x=tx(f/24.f);bool big=f%24==0;
   rect(x-1,y0+h*(big?.5f:.6f),2,h*(big?.2f:.1f),.5f,.5f,.55f);
-  if(big){char b[8];snprintf(b,8,"%d",f);text(b,x+4,y0+h*.12f,p2*.8f,.7f,.7f,.75f);}}
- if(sel>=0)for(auto&k:objs[sel].k)rect(tx(k.t)-h*.09f,y0+h*.76f,h*.18f,h*.18f,.95f,.8f,.1f);
- rect(tx(tm)-2,y0,4,h,1,.3f,.3f);
- char b[16];snprintf(b,16,"%d",(int)roundf(tm*24));float fp=H*.008f;text(b,x0+w-strlen(b)*4*fp-8,y0-6*fp-6,fp,1,1,1);
+  if(big){char b[8];snprintf(b,8,"%d",f);text(b,x-tw(b,p2*.8f)/2,y0+h*.12f,p2*.8f,.7f,.7f,.75f);}}
+ if(sel>=0)for(auto&k:objs[sel].k)rect(tx(k.t)-h*.09f,y0+h*.76f,h*.18f,h*.18f,.95f,.8f,.1f,1,h*.05f);
+ rect(tx(tm)-2,y0,4,h,1,.3f,.3f,1,2);
+ char b[16];snprintf(b,16,"%d",(int)roundf(tm*24));float fp=H*.008f;text(b,x0+w-tw(b,fp)-8,y0-6*fp-6,fp,1,1,1);
  drawNav();
  eglSwapBuffers(dpy,surf);}
 
