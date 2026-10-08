@@ -4,7 +4,7 @@
     <activity android:name="android.app.NativeActivity" android:exported="true"
         android:screenOrientation="landscape"
         android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|uiMode"
-        android:theme="@style/NomadTheme">
+        android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
       <meta-data android:name="android.app.lib_name" android:value="nomad"/>
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
